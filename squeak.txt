@@ -1,0 +1,497 @@
+Object subclass: #Annotate
+	instanceVariableNames: 'tyEnv'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+------------------------------------------
+annot: term
+
+| newTerm paramTy paramBinder|
+(term isMemberOf: INT) 
+	ifTrue: [newTerm := T_INT new.
+		 newTerm ty: (tyEnv freshVar).
+		newTerm value: (term value).
+		^newTerm].
+(term isMemberOf: BOOL) 
+	ifTrue: [newTerm := T_BOOL new.
+		 newTerm ty: (tyEnv freshVar).
+		newTerm value: (term value).
+		^newTerm].
+(term isMemberOf: FUN) 
+	ifTrue: [newTerm := T_FUN new.
+		paramTy := tyEnv freshVar.
+		tyEnv set: (term arg) value: paramTy.
+		paramBinder := T_VAR new.
+		paramBinder ty: paramTy.
+		paramBinder name: term arg.
+		 newTerm ty: (tyEnv freshVar).
+		newTerm arg: paramBinder.
+		newTerm body: (self annot: (term body)).
+		^newTerm].
+(term isMemberOf: VAR) 
+	ifTrue: [newTerm := T_VAR new.
+		newTerm ty: (tyEnv get: (term name)).
+		 newTerm name: (term name).
+		^newTerm].
+(term isMemberOf: CALC) 
+	ifTrue: [newTerm := T_CALC new.
+		newTerm ty: (tyEnv freshVar).
+		newTerm op: term op.
+		 newTerm arg1: (self annot: (term arg1)).
+		newTerm arg2: (self annot: (term arg2)).
+		^newTerm].
+(term isMemberOf: APP)
+	ifTrue:[newTerm := T_APP new.
+		newTerm ty: (tyEnv freshVar).
+		newTerm fun: (self annot: (term fun)).
+		newTerm arg: (self annot: (term arg)).
+		^newTerm].
+-----------------------
+initialize
+
+super initialize.
+tyEnv := TypeEnv new.
+-----------------------
+
+Object subclass: #Constraint
+	instanceVariableNames: 'typeA typeB'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+
+-----------------------
+Class:
+
+collect: term
+
+| cSet c1 c2 c3 tmpTy cSet2|
+
+(term isMemberOf: T_INT) 
+	ifTrue: [cSet := OrderedCollection new.
+		 c1 := Constraint new.
+		c1 typeA: (term ty).
+		c1 typeB: (TyInt new).
+		cSet add: (c1).
+		^cSet].
+(term isMemberOf: T_BOOL) 
+	ifTrue: [cSet := OrderedCollection new.
+		 c1 := Constraint new.
+		c1 typeA: (term ty).
+		c1 typeB: (TyBool new).
+		cSet add: (c1).
+		^cSet].
+(term isMemberOf: T_FUN) 
+	ifTrue: [cSet := Constraint collect: (term body).
+		tmpTy := TyFun new.
+		tmpTy argTy: ((term arg) ty).
+		tmpTy returnTy: ((term body) ty).
+		 c1 := Constraint new.
+		c1 typeA: (term ty).
+		c1 typeB: tmpTy.
+		cSet add: (c1).
+		^cSet].
+(term isMemberOf: T_VAR) 
+	ifTrue: [cSet := OrderedCollection new.
+		^cSet].
+(term isMemberOf: T_CALC) 
+	ifTrue: [cSet := Constraint collect: (term arg1).
+		cSet2 := Constraint collect: (term arg2).
+		cSet2 do: [:a | cSet add: a]. 
+		 c1 := Constraint new.
+		c1 typeA: (term ty).
+		c1 typeB: ((term arg1) ty).
+		c2 := Constraint new.
+		c2 typeA: (term ty).
+		c2 typeB: ((term arg2) ty).
+		c3 := Constraint new.
+		c3 typeA: (term ty).
+		c3 typeB: (TyInt new).
+		cSet add: (c1).
+		cSet add: (c2).
+		cSet add: (c3).
+		^cSet].
+(term isMemberOf: T_APP) 
+	ifTrue: [cSet := Constraint collect: (term fun).
+		cSet2 := Constraint collect: (term arg).
+		cSet2 do: [:a | cSet add: a].
+		tmpTy :=  TyFun new.
+		tmpTy argTy: ((term arg) ty).
+		tmpTy returnTy: (term ty).
+		 c1 := Constraint new.
+		c1 typeA: ((term fun) ty).
+		c1 typeB: tmpTy.
+		cSet add: (c1).
+		^cSet].
+-------------------------
+Object subclass: #Interp
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+Class:
+
+Interpreter: term
+
+| env tyTerm cSet solutions ty r |
+env := InterpEnv new.
+tyTerm := (Annotate new) annot: term.
+cSet := Constraint collect: tyTerm.
+solutions := Unifier unify: cSet.
+Transcript show: (solutions applyOneType: (tyTerm ty));cr.
+Transcript show: (Interp Interpreter: tyTerm Env:env) value;cr.
+"ty := solutions applyOneType: (tyTerm ty).
+r := Interp Interpreter: tyTerm Env:env.
+^r."
+
+------------------------
+Interpreter: term Env: env
+
+| a1 a2 r c newEnv |
+(term isMemberOf: T_INT) 
+	ifTrue: [^term].
+(term isMemberOf: T_BOOL) 
+	ifTrue: [^term].
+(term isMemberOf: T_VAR) 
+	ifTrue: [^(env get:(term name)).].
+(term isMemberOf: T_FUN) 
+	ifTrue: [ c := Closure new.
+		c fun: term.
+		c env: env.
+		^c].
+(term isMemberOf: T_APP) 
+	ifTrue: [ a1 := Interp Interpreter: (term fun) Env: env.
+		newEnv := InterpEnv new.
+		a2 := Interp Interpreter: (term arg) Env: newEnv.
+		env set: (((a1 fun) arg) name) value: a2.
+		r := Interp Interpreter: ((a1 fun) body) Env: (a1 env).
+		^r].
+(term isMemberOf: T_CALC)
+	ifTrue:[
+		a1:=(Interp Interpreter: (term arg1) Env: env).
+		a2:=(Interp Interpreter: (term arg2) Env: env).
+		r:= T_INT new.
+		r value: (a1 value)+(a2 value).
+		^r].
+-------------------------
+Object subclass: #InterpEnv
+	instanceVariableNames: 'env'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+get: key
+
+| v |
+v := env at: key.
+^v.
+-------------------------
+set: key value: val
+
+env at: key put: val.
+-------------------------
+Object subclass: #Substitution
+	instanceVariableNames: 'solutions'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+
+-------------------------
+applyOneType: ty
+
+| tmpTy |
+(ty isMemberOf: TyInt)
+	ifTrue: [^ty].
+(ty isMemberOf: TyBool)
+	ifTrue: [^ty].
+(ty isMemberOf: TyFun)
+	ifTrue: [tmpTy := TyFun new.
+		tmpTy argTy: (self applyOneType: (ty argTy)).
+		tmpTy returnTy: (self applyOneType: (ty returnTy)).
+		^tmpTy].
+(ty isMemberOf: TyVar)
+	ifTrue: [tmpTy := ty.
+		solutions keysDo: [:key| (key = ty num)
+				ifTrue: [tmpTy := solutions at: key].
+			].
+	^tmpTy].
+	 
+-------------------------
+applyToSet: constraints
+
+| ty1 ty2 |
+constraints do: [:a |	ty1 := (self applyOneType: (a typeA)).
+	ty2:= (self applyOneType: (a typeB)).
+	a typeA: ty1.
+	a typeB: ty2].
+^constraints. 
+-------------------------
+compose: other
+
+| sub v1 |
+solutions do: [:value| v1 := (other applyOneType: value).
+	value := v1.].
+other solutions keysAndValuesDo: [:key :value | solutions at: key put: value.].
+sub := Substitution new.
+sub solutions: solutions.
+-------------------------
+initialize
+
+super initialize.
+solutions := Dictionary new.
+-------------------------
+Class:
+
+fromPair: tvar type:ty
+
+| sSet sub|
+sSet := Dictionary new.
+sSet at: tvar put: ty.
+sub := Substitution new.
+sub solutions: sSet.
+^sub.
+-------------------------
+Object subclass: #Type
+	instanceVariableNames: 'n'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+freshVar
+
+| newVar |
+n := n+1.
+newVar := TyVar new.
+newVar num:n.
+^newVar.
+-------------------------
+initialize
+
+super initialize.
+n := 0.
+-------------------------
+Type subclass: #TyFun
+	instanceVariableNames: 'argTy returnTy'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+Type subclass: #TyVar
+	instanceVariableNames: 'num'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+Object subclass: #TypeEnv
+	instanceVariableNames: 'env n'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+freshVar
+
+| newVar |
+n := n+1.
+newVar := TyVar new.
+newVar num:n.
+^newVar.
+-------------------------
+get: key
+
+|v|
+v := env at: key.
+^ v.
+-------------------------
+set: key value: val
+
+env at: key put: val.
+-------------------------
+initialize
+
+super initialize.
+n := 0.
+env := Dictionary new.
+-------------------------
+TypedTerm subclass: #Closure
+	instanceVariableNames: 'fun env'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+TypedTerm subclass: #'T_APP'
+	instanceVariableNames: 'ty fun arg'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+TypedTerm subclass: #'T_BOOL'
+	instanceVariableNames: 'ty value'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+TypedTerm subclass: #'T_CALC'
+	instanceVariableNames: 'ty op arg1 arg2'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+TypedTerm subclass: #'T_FUN'
+	instanceVariableNames: 'ty arg body'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+TypedTerm subclass: #'T_INT'
+	instanceVariableNames: 'ty value'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+TypedTerm subclass: #'T_VAR'
+	instanceVariableNames: 'ty name'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+Object subclass: #Unifier
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+Class:
+
+occurs: n type: ty
+
+| b |
+(ty isMemberOf: TyFun)
+	ifTrue: [ b := (Unifier occurs: n type: (ty argTy)) | (Unifier occurs: n type: (ty returnTy)).
+		^b].
+(ty isMemberOf: TyVar)
+	ifTrue: [ b := (ty num = n).
+		^b]
+	ifFalse: [^false]
+-------------------------
+Class:
+
+unify: constraints
+
+| sub solution1 solutionRest cSetRest updateCSet|
+constraints isEmpty
+	ifTrue: [ sub := Substitution new.
+		^sub]
+	ifFalse:[ solution1:= Unifier unifyOne: (constraints at:1).
+		cSetRest := constraints removeFirst.
+		updateCSet := (solution1 applyToSet: constraints).
+		solutionRest := (Unifier unify: updateCSet).
+		solution1 compose: solutionRest.
+		^solution1.]
+-------------------------
+Class:
+
+unifyOne: constraint
+
+| sub cSet c1 c2 |
+((constraint typeA) isMemberOf: TyInt) & ((constraint typeB) isMemberOf: TyInt) 
+	ifTrue: [sub := Substitution new.
+		 ^sub].
+((constraint typeA) isMemberOf: TyBool) & ((constraint typeB) isMemberOf: TyBool) 
+	ifTrue: [sub := Substitution new.
+		 ^sub].
+((constraint typeA) isMemberOf: TyFun) & ((constraint typeB) isMemberOf: TyFun) 
+	ifTrue: [ cSet := OrderedCollection new.
+		c1 := Constraint new.
+		c1 typeA: (constraint typeA) argTy.
+		c1 typeB: (constraint typeB) argTy.
+		c2 := Constraint new.
+		c2 typeA: (constraint typeA) returnTy.
+		c2 typeB: (constraint typeB) returnTy.
+		cSet add: c1.
+		cSet add: c2.
+		sub := Unifier unify: cSet.
+		 ^sub].
+((constraint typeA) isMemberOf: TyVar)
+	ifTrue: [ sub:= Unifier unifyVar: ((constraint typeA) num) type: (constraint typeB).
+		^sub].
+((constraint typeB) isMemberOf: TyVar)
+	ifTrue: [ sub:= Unifier unifyVar: ((constraint typeB) num) type: (constraint typeA).
+		^sub].
+-------------------------
+Class:
+
+unifyVar: n type:ty
+
+| sub |
+(ty isMemberOf: TyVar)
+	ifTrue: [
+		(ty num = n)
+			ifTrue: [sub := Substitution new.
+				^sub]
+			ifFalse: [sub := Substitution new.
+				(sub solutions) at: n put: ty.
+				^sub]
+		]
+	ifFalse: [
+		(Unifier occurs: n type: ty)
+			ifTrue: []
+			ifFalse: [sub := Substitution new.
+				(sub solutions) at: n put: ty.
+				^sub]]
+
+
+-------------------------
+UntypedTerm subclass: #APP
+	instanceVariableNames: 'fun arg'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+UntypedTerm subclass: #BOOL
+	instanceVariableNames: 'value'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+UntypedTerm subclass: #CALC
+	instanceVariableNames: 'op arg1 arg2'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+UntypedTerm subclass: #FUN
+	instanceVariableNames: 'arg body'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+UntypedTerm subclass: #INT
+	instanceVariableNames: 'value'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+UntypedTerm subclass: #VAR
+	instanceVariableNames: 'name'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: '706-Assignment3'
+-------------------------
+termINT := INT new.
+termINT value:1.
+termVAR := VAR new.
+termVAR name:'x'.
+termCALC := CALC new.
+termCALC op:'+'.
+termCALC arg1: termVAR.
+termCALC arg2: termINT.
+termFUN := FUN new.
+termFUN arg:'x'.
+termFUN body: termCALC.
+termAPP := APP new.
+termAPP fun: termFUN.
+termAPP arg: termINT.
+testAn := Annotate new.
+tyTermApp := testAn annot: termAPP.
+cSet1 := Constraint collect: tyTermApp.
+s1 := Unifier unify: cSet1.
